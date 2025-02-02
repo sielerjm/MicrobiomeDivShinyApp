@@ -6,6 +6,7 @@ library(vegan)
 library(DT)
 library(RColorBrewer)
 library(cowplot)
+library(openai)
 
 ui <- fluidPage(
   useShinyjs(),  # for JavaScript operations
@@ -157,8 +158,35 @@ ui <- fluidPage(
           ),
           # Add table output
           DT::DTOutput("stats_table"),
-          # Add text output for model summary
-          verbatimTextOutput("model_summary")
+          # Updated interpretation section with toggle
+          div(
+            actionButton("toggle_interpret", "Show/Hide AI Interpretation", 
+                        class = "btn-info"),
+            br(), br(),
+            # Collapsible interpretation panel
+            shinyjs::useShinyjs(),  # Enable shinyjs
+            shinyjs::hidden(
+              div(id = "interpretation_panel",
+                wellPanel(
+                  h4("AI Results Interpretation"),
+                  textInput("openai_key", "OpenAI API Key", 
+                           value = "", 
+                           width = "100%",
+                           placeholder = "Enter your OpenAI API key here"),
+                  div(
+                    style = "margin-top: 10px; margin-bottom: 5px; font-size: 0.8em; color: #666;",
+                    "Your API key is only used for this session and is not stored."
+                  ),
+                  actionButton("interpret_results", "Interpret Results", 
+                             class = "btn-primary"),
+                  br(), br(),
+                  textOutput("interpretation_loading"),
+                  verbatimTextOutput("interpretation_text", 
+                                   placeholder = TRUE)
+                )
+              )
+            )
+          )
         )
       )
     )
@@ -177,6 +205,10 @@ ui <- tagList(
       }
       .collapse-button {
         margin-bottom: 10px;
+      }
+      .collapsible {
+        overflow: hidden;
+        transition: max-height 0.3s ease-out;
       }
     "))
   ),
@@ -663,6 +695,12 @@ server <- function(input, output, session) {
   # Add reactive value to store model type and formula
   model_info <- reactiveVal(NULL)
   
+  # Add reactive value for interpretation
+  interpretation <- reactiveVal(NULL)
+  
+  # Add reactive value for loading state
+  is_loading <- reactiveVal(FALSE)
+  
   # Function to run statistical analysis
   run_statistical_analysis <- function(data, response_var, explanatory_vars, 
                                      interaction_terms = NULL, normalized = FALSE) {
@@ -1044,6 +1082,104 @@ server <- function(input, output, session) {
         $(target).collapse('toggle');
       });
     ")
+  })
+  
+  # Add toggle functionality for interpretation panel
+  observeEvent(input$toggle_interpret, {
+    shinyjs::toggle(id = "interpretation_panel", anim = TRUE)
+    
+    # Update button text
+    if (input$toggle_interpret %% 2 == 1) {
+      updateActionButton(session, "toggle_interpret",
+                        label = "Hide AI Interpretation")
+    } else {
+      updateActionButton(session, "toggle_interpret",
+                        label = "Show AI Interpretation")
+    }
+  })
+  
+  # Initialize interpretation text
+  output$interpretation_text <- renderText({
+    "Interpretation will appear here after clicking 'Interpret Results'"
+  })
+  
+  # Function to create prompt for GPT
+  create_interpretation_prompt <- function(results, model_info) {
+    # Convert results to text
+    results_text <- paste(capture.output(print(results)), collapse = "\n")
+    
+    prompt <- paste0(
+      "Please interpret these statistical results in clear, non-technical language:\n\n",
+      "Statistical Test: ", model_info$type, "\n",
+      "Response Variable: ", model_info$response, "\n",
+      "Model Formula: ", model_info$formula, "\n\n",
+      "Results:\n", results_text, "\n\n",
+      "Please include:\n",
+      "1. A brief overview of what was tested\n",
+      "2. The main findings and their significance\n",
+      "3. What these results mean in practical terms\n",
+      "Keep the explanation concise but informative."
+    )
+    
+    return(prompt)
+  }
+  
+  # Update the observer for interpretation button
+  observeEvent(input$interpret_results, {
+    req(stats_results(), model_info(), input$openai_key)
+    
+    if (nchar(input$openai_key) < 1) {
+      interpretation("Please enter your OpenAI API key to get interpretation.")
+      return()
+    }
+    
+    # Set loading state
+    is_loading(TRUE)
+    interpretation(NULL)
+    
+    # Create prompt
+    prompt <- create_interpretation_prompt(stats_results(), model_info())
+    
+    tryCatch({
+      # Initialize OpenAI client with user-provided key
+      client <- openai::setup_openai(api_key = input$openai_key)
+      
+      # Make API call
+      response <- openai::create_chat_completion(
+        client = client,
+        model = "gpt-3.5-turbo",
+        messages = list(
+          list(
+            role = "system",
+            content = "You are a helpful statistical interpreter who explains results clearly to non-experts."
+          ),
+          list(
+            role = "user",
+            content = prompt
+          )
+        ),
+        temperature = 0.7,
+        max_tokens = 500
+      )
+      
+      # Extract and store interpretation
+      interpretation(response$choices$message$content)
+      
+    }, error = function(e) {
+      interpretation(paste("Error getting interpretation:", conditionMessage(e),
+                         "\nPlease check if your API key is valid."))
+    }, finally = {
+      is_loading(FALSE)
+    })
+  })
+  
+  # Update the interpretation text output
+  output$interpretation_text <- renderText({
+    if (!is.null(interpretation())) {
+      interpretation()
+    } else {
+      "Interpretation will appear here after clicking 'Interpret Results'"
+    }
   })
 }
 
