@@ -544,18 +544,33 @@ server <- function(input, output, session) {
           show.legend = input$alpha_legend_position != "none"
         )
         
-        # Add faceting if selected
-        if (!is.null(input$alpha_facet_x) && 
-            length(input$alpha_facet_x) > 0 && 
-            !all(input$alpha_facet_x == "None")) {
-          facet_formula <- paste("~", paste(input$alpha_facet_x, collapse = "+"))
-          p <- p + ggplot2::facet_wrap(
-            as.formula(facet_formula),
-            scales = "free_y",
-            nrow = get_facet_dim(input$facet_nrow),
-            ncol = get_facet_dim(input$facet_ncol)
-          )
-        }
+        # Determine facet formula
+if (!is.null(input$alpha_facet_x) && 
+    !is.null(input$alpha_facet_y) && 
+    length(input$alpha_facet_x) > 0 && 
+    length(input$alpha_facet_y) > 0 &&
+    !all(input$alpha_facet_x == "None") &&
+    !all(input$alpha_facet_y == "None")) {
+  
+  facet_formula <- paste(input$alpha_facet_y, "~", paste(input$alpha_facet_x, collapse = "+"))
+  p <- p + ggplot2::facet_grid(as.formula(facet_formula), scales = "free")
+
+} else if (!is.null(input$alpha_facet_x) && 
+           length(input$alpha_facet_x) > 0 && 
+           !all(input$alpha_facet_x == "None")) {
+
+  facet_formula <- paste("~", paste(input$alpha_facet_x, collapse = "+"))
+  p <- p + ggplot2::facet_wrap(as.formula(facet_formula), scales = "free",
+                               nrow = get_facet_dim(input$facet_nrow),
+                               ncol = get_facet_dim(input$facet_ncol))
+
+} else if (!is.null(input$alpha_facet_y) && 
+           length(input$alpha_facet_y) > 0 && 
+           !all(input$alpha_facet_y == "None")) {
+
+  facet_formula <- paste(input$alpha_facet_y, "~ .")
+  p <- p + ggplot2::facet_grid(as.formula(facet_formula), scales = "free")
+}
         
         # Apply scales
         if (!is.null(input$alpha_color)) {
@@ -864,27 +879,28 @@ server <- function(input, output, session) {
         }, 4)
       )
       
-      # Add p-values with more precise handling
+      # Add p-values with scientific notation for small values
       p_values <- if("Pr(>|t|)" %in% colnames(coef_table)) {
         coef_table[, "Pr(>|t|)"]
       } else {
         coef_table[, "Pr(>|z|)"]
       }
       
-      # Format p-values with more precise handling of small values
+      # Format p-values using scientific notation for small values
       results$`P-value` <- sapply(p_values, function(p) {
-        if (p < 0.0001) {
-          "< 0.0001"
-        } else if (p < 0.001) {
-          "< 0.001"
+        if (p < 0.001) {
+          # Convert to scientific notation and simplify
+          sci <- format(p, scientific = TRUE, digits = 3)
+          # Clean up the scientific notation (e.g., "1e-04" to "1×10⁻⁴")
+          sci <- gsub("e-", "×10⁻", sci)
+          return(sci)
         } else {
-          format(p, digits = 3, scientific = FALSE)
+          return(format(p, digits = 3, scientific = FALSE))
         }
       })
       
-      # Add significance stars with more precise p-value handling
+      # Add significance stars
       results$Significance <- sapply(p_values, function(p) {
-        if (p < 0.0001) return("***")
         if (p < 0.001) return("***")
         if (p < 0.01) return("**")
         if (p < 0.05) return("*")
@@ -931,52 +947,22 @@ server <- function(input, output, session) {
     # Create a copy of the results to work with
     results <- stats_results()
     
-    # Convert P-values to numeric for styling
-    p_values <- sapply(results$`P-value`, function(p) {
-      if (grepl("<", p)) {
-        return(0.0001)
-      }
-      as.numeric(p)
-    })
-    
     DT::datatable(
       results,
       options = list(
         pageLength = 25,
         scrollX = TRUE,
-        order = list(list(4, 'asc')),
-        columnDefs = list(
-          list(
-            targets = which(colnames(results) == "P-value") - 1,
-            render = DT::JS(
-              "function(data, type, row, meta) {",
-              "  if (type === 'display') {",
-              "    if (data.startsWith('<')) return data;",
-              "    var num = parseFloat(data);",
-              "    if (num < 0.0001) return '< 0.0001';",
-              "    if (num < 0.001) return '< 0.001';",
-              "    return data;",
-              "  }",
-              "  return data;",
-              "}"
-            )
-          )
-        )
-      ),
-      caption = htmltools::tags$caption(
-        style = "caption-side: bottom; text-align: left; font-style: italic;",
-        caption_text
+        order = list(list(4, 'asc'))  # Sort by p-value column by default
       ),
       rownames = FALSE
     ) %>%
       DT::formatStyle(
         'P-value',
         backgroundColor = styleInterval(
-          c(0.0001, 0.001, 0.01, 0.05),
+          c(0.001, 0.01, 0.05),
           c('rgba(255,180,180,1)', 
             'rgba(255,200,200,0.9)', 
             'rgba(255,220,220,0.7)', 
-            'rgba(255,240,240,0.5)', 
             'none')
         )
       ) %>%
