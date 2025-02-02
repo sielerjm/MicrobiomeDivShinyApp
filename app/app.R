@@ -190,7 +190,21 @@ ui <- fluidPage(
           # Add download panel
           div(id = "stats_download_panel", class = "collapse",
             wellPanel(
-              downloadButton("download_stats_csv", "Download CSV")
+              fluidRow(
+                column(12,
+                  h4("Download Options"),
+                  div(style = "display: inline-block; vertical-align: top; margin-right: 10px;",
+                      numericInput("stats_plot_width", "Width (inches)", value = 8, min = 1, max = 20)),
+                  div(style = "display: inline-block; vertical-align: top; margin-right: 10px;",
+                      numericInput("stats_plot_height", "Height (inches)", value = 6, min = 1, max = 20)),
+                  div(style = "display: inline-block; vertical-align: top; margin-right: 10px;",
+                      numericInput("stats_plot_dpi", "DPI", value = 300, min = 72, max = 600)),
+                  div(style = "display: inline-block; vertical-align: top;",
+                      downloadButton("download_stats_csv", "Download CSV"),
+                      downloadButton("download_stats_png", "Download PNG"),
+                      downloadButton("download_stats_pdf", "Download PDF"))
+                )
+              )
             )
           ),
           
@@ -1024,6 +1038,54 @@ if (!is.null(input$alpha_facet_x) &&
              device = "pdf",
              width = input$plot_width,
              height = input$plot_height)
+    }
+  )
+  
+  # Add new download handlers in the server function
+  output$download_stats_png <- downloadHandler(
+    filename = function() {
+      paste0("statistical_results_", Sys.Date(), ".png")
+    },
+    content = function(file) {
+      req(stats_results())
+      
+      # Create a table plot
+      p <- gridExtra::tableGrob(stats_results(), 
+                               theme = gridExtra::ttheme_minimal(
+                                 base_size = 10,
+                                 padding = unit(c(4, 4), "mm")
+                               ))
+      
+      # Save as PNG
+      ggplot2::ggsave(file,
+             plot = p,
+             device = "png",
+             width = input$stats_plot_width,
+             height = input$stats_plot_height,
+             dpi = input$stats_plot_dpi)
+    }
+  )
+  
+  output$download_stats_pdf <- downloadHandler(
+    filename = function() {
+      paste0("statistical_results_", Sys.Date(), ".pdf")
+    },
+    content = function(file) {
+      req(stats_results())
+      
+      # Create a table plot
+      p <- gridExtra::tableGrob(stats_results(), 
+                               theme = gridExtra::ttheme_minimal(
+                                 base_size = 10,
+                                 padding = unit(c(4, 4), "mm")
+                               ))
+      
+      # Save as PDF
+      ggplot2::ggsave(file,
+             plot = p,
+             device = "pdf",
+             width = input$stats_plot_width,
+             height = input$stats_plot_height)
     }
   )
   
