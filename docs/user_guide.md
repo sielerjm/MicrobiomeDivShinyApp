@@ -8,6 +8,7 @@
 5. [Example Analyses](#example-analyses)
 6. [Troubleshooting](#troubleshooting)
 7. [FAQs](#faqs)
+8. [AI Interpretation](#ai-interpretation)
 
 ## Installation <a name="installation"></a>
 
@@ -19,7 +20,7 @@
 Run in R console:
 ```r
 # Install CRAN packages
-install.packages(c("shiny", "tidyverse", "vegan", "DT", "cowplot"))
+install.packages(c("shiny", "tidyverse", "vegan", "DT", "cowplot", "shinyjs", "httr", "jsonlite"))
 
 # Install Bioconductor packages
 if (!require("BiocManager", quietly = TRUE))
@@ -51,48 +52,71 @@ saveRDS(physeq_object, "my_physeq.rds")
 - **Upload Phyloseq Object**: Use the sidebar to upload your .rds file
 - **Select Metrics**:
   - Alpha Diversity: Choose ≥1 metric (Shannon/Simpson/Observed)
-  - Beta Diversity: Choose ≥1 metric (Bray-Curtis/Canberra)
+  - Normalization: Option to show normalized values (0-1 scale)
 
 ### 2. Figures Tab
 #### Alpha Diversity
 - **Color By**: Select metadata variable for boxplot colors
 - **Shape By**: Optional shape aesthetic
+- **Facet By**: Split plots by one or more metadata variables
+- **Advanced Options**:
+  - Custom plot titles and axis labels
+  - Control font sizes
+  - Adjust legend position and appearance
+  - Add plot captions
+  - Set facet layout (rows/columns)
 - Visualization: Interactive boxplots with jittered points
+- **Download Options**:
+  - PNG or PDF format
+  - Customizable dimensions and DPI
 
-#### Beta Diversity
-- **Color By**: Select metadata variable for PCoA colors
-- **Shape By**: Optional shape aesthetic
-- Visualization: PCoA plots using selected metrics
-
-### 3. Tables Tab
-1. **Select Analysis Type**: Alpha or Beta diversity
+### 3. Statistics Tab
+1. **Select Analysis Type**: 
+   - Normalized or raw values
+   - Linear model or quasibinomial GLM
 2. **Choose Variables**:
    - Response: Selected diversity metric
-   - Explanatory: Metadata variable
+   - Explanatory: One or more metadata variables
+   - Interaction terms: Test interactions between variables
 3. Click "Run Analysis" to perform:
-   - Alpha: Linear model ANOVA
-   - Beta: PERMANOVA (adonis2)
+   - Model fitting and summary statistics
+   - P-values with significance stars
+4. **Download Results**:
+   - CSV format with full statistical output
+
+## AI Interpretation <a name="ai-interpretation"></a>
+1. After running statistical analysis, click "Show AI Interpretation"
+2. Enter your Hugging Face API token
+3. (Optional) Provide experimental context for more relevant interpretation
+4. Click "Interpret Results" to get:
+   - Plain language explanation of statistical results
+   - Key findings and their significance
+   - Practical implications of the results
+   - Context-specific insights (if context provided)
+
+**Note**: API tokens are only used for the current session and are not stored.
 
 ## Example Analyses <a name="example-analyses"></a>
 
-### Example 1: Alpha Diversity Comparison
+### Example 1: Normalized Alpha Diversity Comparison
 1. Upload example phyloseq object
 2. Select: Shannon + Simpson metrics
-3. Color by "TreatmentGroup"
-4. In Tables tab:
-   - Response: Shannon
+3. Enable normalization
+4. Color by "TreatmentGroup"
+5. In Statistics tab:
+   - Response: Shannon (normalized)
    - Explanatory: TreatmentGroup
    
-**Output**: ANOVA table showing treatment effects
+**Output**: Quasibinomial GLM results showing treatment effects
 
-### Example 2: Beta Diversity Analysis
-1. Select Bray-Curtis metric
-2. Color by "TimePoint"
-3. In Tables tab:
-   - Response: BrayCurtis
-   - Explanatory: TimePoint
-   
-**Output**: PERMANOVA table with F-statistics
+### Example 2: Interaction Analysis
+1. Select Observed richness
+2. Choose explanatory variables: Treatment and TimePoint
+3. Add interaction term: Treatment × TimePoint
+4. Run analysis
+5. Get AI interpretation with experimental context
+
+**Output**: Model results showing main effects and interaction, with AI-generated explanation
 
 ## Troubleshooting <a name="troubleshooting"></a>
 
@@ -102,6 +126,7 @@ saveRDS(physeq_object, "my_physeq.rds")
 | Missing metrics in Tables tab | Select metrics first in sidebar               |
 | Visualization errors          | Check metadata variables exist in sample_data |
 | Package installation failures | Update R/Bioconductor versions                |
+| AI interpretation not working | Verify API token is valid and active          |
 
 **Common Errors:**
 ```r
@@ -118,17 +143,20 @@ physeq <- phyloseq(
 **Q: What data formats are supported?**  
 A: Only phyloseq objects saved as .rds files
 
-**Q: Can I use different alpha diversity metrics?**  
-A: Currently supports Shannon, Simpson, and Observed richness
+**Q: Can I use normalized values for analysis?**  
+A: Yes, both raw and normalized (0-1 scale) values are supported
 
 **Q: How to handle large datasets?**  
 A: Consider pre-filtering low-abundance OTUs before import
 
 **Q: Can I save my results?**  
-A: Use RStudio's export options for plots/tables
+A: Use the download options for plots (PNG/PDF) and tables (CSV)
 
-**Q: Is phylogenetic beta diversity supported?**  
-A: Not in current version - uses presence/abundance metrics only
+**Q: Is the AI interpretation secure?**  
+A: Yes, API tokens are only used for the current session and are not stored
+
+**Q: What model is used for AI interpretation?**  
+A: The app uses Hugging Face's Mixtral-8x7B-Instruct-v0.1 model
 
 ---
 
