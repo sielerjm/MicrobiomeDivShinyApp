@@ -2,6 +2,8 @@
 
 Interactive visualization and statistical analysis of microbiome diversity metrics using R Shiny.
 
+![App Demo](media/0201/0201.gif)
+
 ## Features
 - Phyloseq object import
 - Alpha/Beta diversity calculations
@@ -24,4 +26,4 @@ shiny::runApp("app/app.R")
 3. Customize visualizations
 4. Perform statistical analyses
 
-[Demo](#) | [Documentation](docs/user_guide.md)
+[Documentation](docs/user_guide.md)
