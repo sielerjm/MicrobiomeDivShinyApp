@@ -182,14 +182,21 @@ ui <- fluidPage(
         
         tabPanel("Statistics",
           br(),
-          # Add download button container
+          # Add toggle button for download options
+          actionButton("toggle_stats_download", "Show Download Options",
+                      class = "collapse-button",
+                      `data-target` = "#stats_download_panel"),
+          
+          # Add download panel
           div(id = "stats_download_panel", class = "collapse",
-              wellPanel(
-                downloadButton("download_stats_csv", "Download CSV")
-              )
+            wellPanel(
+              downloadButton("download_stats_csv", "Download CSV")
+            )
           ),
-          # Add table output
+          
+          # Table output
           DT::DTOutput("stats_table"),
+          
           # Updated interpretation section
           div(
             actionButton("toggle_interpret", "Show/Hide AI Interpretation", 
@@ -200,43 +207,49 @@ ui <- fluidPage(
               div(id = "interpretation_panel",
                 wellPanel(
                   h4("AI Results Interpretation"),
-                  # Updated API token input with show/hide functionality
-                  div(class = "api-token-section",
-                      passwordInput("hf_key", "Hugging Face API Token", 
-                                value = "", 
-                                width = "100%",
-                                placeholder = "Enter your Hugging Face API token here"),
-                      actionButton("toggle_token_visibility", 
-                                 label = NULL,
-                                 icon = icon("eye"),
-                                 class = "show-hide-btn",
-                                 title = "Show/Hide API Token")
-                  ),
-                  div(
-                    style = "margin-top: 10px; margin-bottom: 5px; font-size: 0.8em; color: #666;",
-                    "Your API token is only used for this session and is not stored."
-                  ),
-                  # Add experimental context input
-                  tags$div(
-                    style = "margin-top: 15px;",
-                    textAreaInput(
-                      "experiment_context",
-                      "Experimental Context (optional)",
-                      value = "",
-                      width = "100%",
-                      height = "100px",
-                      placeholder = "Describe your experiment here (e.g., study objectives, experimental design, important variables, expected outcomes)"
+                  # Add copy button
+                  div(style = "position: relative;",
+                    actionButton("copy_interpretation", "Copy Text", 
+                                class = "btn-default",
+                                style = "position: absolute; right: 0; top: -40px;"),
+                    # Existing API token section...
+                    div(class = "api-token-section",
+                        passwordInput("hf_key", "Hugging Face API Token", 
+                                    value = "", 
+                                    width = "100%",
+                                    placeholder = "Enter your Hugging Face API token here"),
+                        actionButton("toggle_token_visibility", 
+                                   label = NULL,
+                                   icon = icon("eye"),
+                                   class = "show-hide-btn",
+                                   title = "Show/Hide API Token")
                     ),
                     div(
-                      style = "margin-top: 5px; margin-bottom: 15px; font-size: 0.8em; color: #666;",
-                      "Adding context will help the AI provide more relevant interpretations."
-                    )
-                  ),
-                  actionButton("interpret_results", "Interpret Results", 
-                             class = "btn-primary"),
-                  br(), br(),
-                  textOutput("interpretation_loading"),
-                  uiOutput("interpretation_text")
+                      style = "margin-top: 10px; margin-bottom: 5px; font-size: 0.8em; color: #666;",
+                      "Your API token is only used for this session and is not stored."
+                    ),
+                    # Add experimental context input
+                    tags$div(
+                      style = "margin-top: 15px;",
+                      textAreaInput(
+                        "experiment_context",
+                        "Experimental Context (optional)",
+                        value = "",
+                        width = "100%",
+                        height = "100px",
+                        placeholder = "Describe your experiment here (e.g., study objectives, experimental design, important variables, expected outcomes)"
+                      ),
+                      div(
+                        style = "margin-top: 5px; margin-bottom: 15px; font-size: 0.8em; color: #666;",
+                        "Adding context will help the AI provide more relevant interpretations."
+                      )
+                    ),
+                    actionButton("interpret_results", "Interpret Results", 
+                               class = "btn-primary"),
+                    br(), br(),
+                    textOutput("interpretation_loading"),
+                    uiOutput("interpretation_text")
+                  )
                 )
               )
             )
@@ -1118,7 +1131,9 @@ if (!is.null(input$alpha_facet_x) &&
       $(document).on('click', '.collapse-button', function() {
         var target = $(this).data('target');
         var text = $(this).text();
-        $(this).text(text === 'Show Download Options' ? 'Hide Download Options' : 'Show Download Options');
+        if (target === '#stats_download_panel') {
+          $(this).text(text === 'Show Download Options' ? 'Hide Download Options' : 'Show Download Options');
+        }
         $(target).collapse('toggle');
       });
     ")
@@ -1284,6 +1299,64 @@ if (!is.null(input$alpha_facet_x) &&
       $("#toggle_token_visibility i").addClass("fa-eye").removeClass("fa-eye-slash");
       $("#toggle_token_visibility").attr("title", "Show API Token");
     ')
+  })
+  
+  # Update the copy button observer
+  observeEvent(input$copy_interpretation, {
+    # Get the interpretation text
+    text <- interpretation()
+    
+    if (is.null(text) || nchar(trimws(text)) == 0) {
+      showNotification("No text to copy. Please generate an interpretation first.", 
+                      type = "warning")
+      return()
+    }
+    
+    # Use JavaScript to copy to clipboard with better error handling
+    shinyjs::runjs(sprintf("
+      (function() {
+        const text = `%s`;
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.top = '0';
+        textarea.style.left = '0';
+        textarea.style.width = '2em';
+        textarea.style.height = '2em';
+        textarea.style.padding = '0';
+        textarea.style.border = 'none';
+        textarea.style.outline = 'none';
+        textarea.style.boxShadow = 'none';
+        textarea.style.background = 'transparent';
+        
+        document.body.appendChild(textarea);
+        textarea.select();
+        
+        try {
+          const successful = document.execCommand('copy');
+          if (successful) {
+            Shiny.setInputValue('copy_success', true, {priority: 'event'});
+          } else {
+            Shiny.setInputValue('copy_error', true, {priority: 'event'});
+          }
+        } catch (err) {
+          Shiny.setInputValue('copy_error', true, {priority: 'event'});
+        } finally {
+          document.body.removeChild(textarea);
+        }
+      })();
+    ", gsub("`", "\\`", text)))
+  })
+  
+  # Update success/error notifications
+  observeEvent(input$copy_success, {
+    showNotification("Text successfully copied to clipboard!", 
+                    type = "message", duration = 3)
+  })
+  
+  observeEvent(input$copy_error, {
+    showNotification("Copy failed. Please try again or copy manually.", 
+                    type = "error", duration = 5)
   })
 }
 
