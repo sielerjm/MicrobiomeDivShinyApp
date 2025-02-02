@@ -7,6 +7,8 @@ library(DT)
 library(RColorBrewer)
 library(cowplot)
 library(openai)
+library(httr)
+library(jsonlite)
 
 ui <- fluidPage(
   useShinyjs(),  # for JavaScript operations
@@ -24,6 +26,36 @@ ui <- fluidPage(
         top: 10px;
         right: 10px;
         z-index: 9999;
+      }
+      .wrapped-output {
+        white-space: pre-wrap;       /* preserve line breaks but wrap text */
+        word-wrap: break-word;       /* break long words */
+        font-family: monospace;      /* keep monospace font */
+        background-color: #f8f9fa;   /* light background */
+        padding: 10px;              /* add some padding */
+        border-radius: 4px;         /* rounded corners */
+        border: 1px solid #dee2e6;  /* subtle border */
+        max-width: 100%;            /* ensure it doesn't overflow container */
+        height: auto;               /* adjust height automatically */
+        overflow-y: auto;           /* add scrollbar if needed */
+      }
+      .api-token-section {
+        position: relative;
+      }
+      .show-hide-btn {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 100;
+        background: none;
+        border: none;
+        color: #666;
+        cursor: pointer;
+        padding: 5px 10px;
+      }
+      .show-hide-btn:hover {
+        color: #333;
       }
     "))
   ),
@@ -158,31 +190,53 @@ ui <- fluidPage(
           ),
           # Add table output
           DT::DTOutput("stats_table"),
-          # Updated interpretation section with toggle
+          # Updated interpretation section
           div(
             actionButton("toggle_interpret", "Show/Hide AI Interpretation", 
                         class = "btn-info"),
             br(), br(),
-            # Collapsible interpretation panel
-            shinyjs::useShinyjs(),  # Enable shinyjs
+            shinyjs::useShinyjs(),
             shinyjs::hidden(
               div(id = "interpretation_panel",
                 wellPanel(
                   h4("AI Results Interpretation"),
-                  textInput("openai_key", "OpenAI API Key", 
-                           value = "", 
-                           width = "100%",
-                           placeholder = "Enter your OpenAI API key here"),
+                  # Updated API token input with show/hide functionality
+                  div(class = "api-token-section",
+                      passwordInput("hf_key", "Hugging Face API Token", 
+                                value = "", 
+                                width = "100%",
+                                placeholder = "Enter your Hugging Face API token here"),
+                      actionButton("toggle_token_visibility", 
+                                 label = NULL,
+                                 icon = icon("eye"),
+                                 class = "show-hide-btn",
+                                 title = "Show/Hide API Token")
+                  ),
                   div(
                     style = "margin-top: 10px; margin-bottom: 5px; font-size: 0.8em; color: #666;",
-                    "Your API key is only used for this session and is not stored."
+                    "Your API token is only used for this session and is not stored."
+                  ),
+                  # Add experimental context input
+                  tags$div(
+                    style = "margin-top: 15px;",
+                    textAreaInput(
+                      "experiment_context",
+                      "Experimental Context (optional)",
+                      value = "",
+                      width = "100%",
+                      height = "100px",
+                      placeholder = "Describe your experiment here (e.g., study objectives, experimental design, important variables, expected outcomes)"
+                    ),
+                    div(
+                      style = "margin-top: 5px; margin-bottom: 15px; font-size: 0.8em; color: #666;",
+                      "Adding context will help the AI provide more relevant interpretations."
+                    )
                   ),
                   actionButton("interpret_results", "Interpret Results", 
                              class = "btn-primary"),
                   br(), br(),
                   textOutput("interpretation_loading"),
-                  verbatimTextOutput("interpretation_text", 
-                                   placeholder = TRUE)
+                  uiOutput("interpretation_text")
                 )
               )
             )
@@ -1098,27 +1152,65 @@ server <- function(input, output, session) {
     }
   })
   
-  # Initialize interpretation text
-  output$interpretation_text <- renderText({
-    "Interpretation will appear here after clicking 'Interpret Results'"
+  # Update the interpretation output
+  output$interpretation_text <- renderUI({
+    text <- if (is.null(interpretation())) {
+      "Interpretation will appear here after clicking 'Interpret Results'"
+    } else {
+      interpretation()
+    }
+    
+    # Create a div with the wrapped-output class
+    div(
+      class = "wrapped-output",
+      style = "margin-top: 10px;",
+      HTML(gsub("\n", "<br/>", text))
+    )
   })
   
-  # Function to create prompt for GPT
+  # Loading message
+  output$interpretation_loading <- renderText({
+    if (is_loading()) {
+      "Getting interpretation..."
+    } else {
+      ""
+    }
+  })
+  
+  # Function to create prompt for the model
   create_interpretation_prompt <- function(results, model_info) {
-    # Convert results to text
     results_text <- paste(capture.output(print(results)), collapse = "\n")
     
+    # Add context if provided
+    context_section <- if (!is.null(input$experiment_context) && 
+                         nchar(trimws(input$experiment_context)) > 0) {
+      paste0("\nExperimental Context:\n", input$experiment_context, "\n")
+    } else {
+      ""
+    }
+    
     prompt <- paste0(
-      "Please interpret these statistical results in clear, non-technical language:\n\n",
+      "Please interpret these statistical results in clear, non-technical language.",
+      context_section,
+      "\nStatistical Analysis Details:\n",
       "Statistical Test: ", model_info$type, "\n",
       "Response Variable: ", model_info$response, "\n",
       "Model Formula: ", model_info$formula, "\n\n",
       "Results:\n", results_text, "\n\n",
-      "Please include:\n",
+      if (nchar(context_section) > 0) {
+        "Please interpret these results in the context of the experimental details provided, including:\n"
+      } else {
+        "Please include:\n"
+      },
       "1. A brief overview of what was tested\n",
       "2. The main findings and their significance\n",
-      "3. What these results mean in practical terms\n",
-      "Keep the explanation concise but informative."
+      "3. What these results mean in practical terms",
+      if (nchar(context_section) > 0) {
+        "\n4. How these findings relate to the experimental context and objectives"
+      } else {
+        ""
+      },
+      "\nKeep the explanation concise but informative."
     )
     
     return(prompt)
@@ -1126,10 +1218,10 @@ server <- function(input, output, session) {
   
   # Update the observer for interpretation button
   observeEvent(input$interpret_results, {
-    req(stats_results(), model_info(), input$openai_key)
+    req(stats_results(), model_info(), input$hf_key)
     
-    if (nchar(input$openai_key) < 1) {
-      interpretation("Please enter your OpenAI API key to get interpretation.")
+    if (nchar(input$hf_key) < 1) {
+      interpretation("Please enter your Hugging Face API token to get interpretation.")
       return()
     }
     
@@ -1141,45 +1233,71 @@ server <- function(input, output, session) {
     prompt <- create_interpretation_prompt(stats_results(), model_info())
     
     tryCatch({
-      # Initialize OpenAI client with user-provided key
-      client <- openai::setup_openai(api_key = input$openai_key)
-      
-      # Make API call
-      response <- openai::create_chat_completion(
-        client = client,
-        model = "gpt-3.5-turbo",
-        messages = list(
-          list(
-            role = "system",
-            content = "You are a helpful statistical interpreter who explains results clearly to non-experts."
-          ),
-          list(
-            role = "user",
-            content = prompt
-          )
+      # Make API call to Hugging Face
+      response <- httr::POST(
+        url = "https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1",
+        httr::add_headers(
+          Authorization = paste("Bearer", input$hf_key),
+          "Content-Type" = "application/json"
         ),
-        temperature = 0.7,
-        max_tokens = 500
+        body = list(
+          inputs = prompt
+        ),
+        encode = "json"
       )
       
-      # Extract and store interpretation
-      interpretation(response$choices$message$content)
+      # Check if request was successful
+      if (httr::status_code(response) == 200) {
+        # Get response content
+        response_content <- httr::content(response, "text", encoding = "UTF-8")
+        parsed_content <- jsonlite::fromJSON(response_content)
+        
+        # Extract the generated text
+        if (is.character(parsed_content)) {
+          interpretation(parsed_content[1])
+        } else if (is.list(parsed_content)) {
+          interpretation(as.character(parsed_content[[1]]))
+        } else {
+          interpretation("Error: Unexpected response format from API")
+        }
+        
+      } else {
+        # Handle error response
+        error_content <- httr::content(response, "text", encoding = "UTF-8")
+        interpretation(paste("API Error (", httr::status_code(response), "): ", 
+                           error_content, sep=""))
+      }
       
     }, error = function(e) {
-      interpretation(paste("Error getting interpretation:", conditionMessage(e),
-                         "\nPlease check if your API key is valid."))
+      interpretation(paste("Error: Unable to get interpretation. ",
+                         "Please check your API token and try again."))
     }, finally = {
       is_loading(FALSE)
     })
   })
   
-  # Update the interpretation text output
-  output$interpretation_text <- renderText({
-    if (!is.null(interpretation())) {
-      interpretation()
+  # Add observer for token visibility toggle
+  observeEvent(input$toggle_token_visibility, {
+    token_input <- paste0('$("#hf_key").attr("type", $("#hf_key").attr("type") === "password" ? "text" : "password");')
+    icon_update <- paste0('$("#toggle_token_visibility i").toggleClass("fa-eye fa-eye-slash");')
+    
+    shinyjs::runjs(paste(token_input, icon_update))
+    
+    # Update button title
+    if (input$toggle_token_visibility %% 2 == 1) {
+      shinyjs::runjs('$("#toggle_token_visibility").attr("title", "Hide API Token");')
     } else {
-      "Interpretation will appear here after clicking 'Interpret Results'"
+      shinyjs::runjs('$("#toggle_token_visibility").attr("title", "Show API Token");')
     }
+  })
+  
+  # Initialize password input as hidden on startup
+  observe({
+    shinyjs::runjs('
+      $("#hf_key").attr("type", "password");
+      $("#toggle_token_visibility i").addClass("fa-eye").removeClass("fa-eye-slash");
+      $("#toggle_token_visibility").attr("title", "Show API Token");
+    ')
   })
 }
 
