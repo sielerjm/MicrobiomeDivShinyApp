@@ -59,8 +59,8 @@ server <- function(input, output, session) {
     req(input$alpha_metrics)
     physeq() %>%
       estimate_richness(measures = input$alpha_metrics) %>%
-      rownames_to_column("SampleID") %>%
-      left_join(sample_data(physeq()) %>% as_tibble(), by = "SampleID")
+      rownames_to_column("Sample") %>%
+      left_join(sample_data(physeq()) %>% as_tibble(), by = "Sample")
   })
   
   # Beta diversity calculations
