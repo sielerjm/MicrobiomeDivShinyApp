@@ -9,9 +9,9 @@
 
 library(shiny)
 library(phyloseq)
-library(tidyverse)
 library(vegan)
 library(DT)
+library(tidyverse)
 
 ui <- fluidPage(
   titlePanel("Microbiome Diversity Analysis"),
