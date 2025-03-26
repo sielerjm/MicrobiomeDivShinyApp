@@ -2,6 +2,8 @@
 
 Interactive visualization and statistical analysis of microbiome diversity metrics using R Shiny.
 
+You can explore the [app here](https://michael-sieler.shinyapps.io/MicrobiomeDiversityShinyApp/), or watch a video demo below.
+
 ![App Demo](media/0201/0201.gif)
 
 ## Features
